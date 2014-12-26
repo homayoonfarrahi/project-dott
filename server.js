@@ -18,6 +18,10 @@ var server = http.createServer(function (request, response) {
         response.writeHead(200, { 'Content-Type': 'image/x-icon' });
         fs.createReadStream('./favicon.ico').pipe(response);
     }
+    else if (url.parse(request.url, true).pathname === '/jquery-2.1.3.js') {
+        response.writeHead(200, { 'Content-Type': 'application/javascript'});
+        fs.createReadStream('./jquery-2.1.3.js').pipe(response);
+    }
     else if (url.parse(request.url, true).pathname === '/two.js') {
         response.writeHead(200, { 'Content-Type': 'application/javascript'});
         fs.createReadStream('./two.js').pipe(response);
