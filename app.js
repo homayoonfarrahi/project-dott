@@ -15,7 +15,9 @@ var playSong = function(audio) {
 	var prevFrameCount = 0;
     var currFrameCount = 0;
     var deltaFrameCount = 0;
-    var velocityTheta = 0;
+    var targetVelocityStart = 1;
+    var targetVelocityEnd = 5;
+    var lerpFactor = 0.05;
 
     //*
     var dancer = new Dancer();
@@ -49,8 +51,8 @@ var playSong = function(audio) {
     console.log(two.width, two.height);
 
     var width = two.width;
-    var height = 667;       // FIXME: changed it later to two.height (showing dev console in browser changes height)
-    var curvePointCount = 32;
+    var height = 667;       // FIXME: change it later to two.height (showing dev console in browser changes height)
+    var curvePointCount = 64;
     var curvePoints = [];
 
     // make the points for the path
@@ -80,25 +82,49 @@ var playSong = function(audio) {
     path.noFill().linewidth = 15;
     path.cap = path.join = 'round';
     path.stroke = 'lightblue';
-    console.log(path.length);
+
 
     var targetBall = two.makeCircle(650, 300, 60);
     targetBall.fill = 'rgba(200, 10, 100, 0.5)';
     targetBall.noStroke();
 
+    var placeOnPath = 0;
 	// start the animation loop
 	two.bind('update', function(frameCount, timeDelta) {
 
-        var point = new Two.Anchor();
-        var placeOnPath = audio.currentTime / audio.duration;
-        if (placeOnPath === NaN || placeOnPath === undefined)
+        if (isNaN(audio.duration) || isNaN(audio.currentTime))
+            return;
+
+        var currTargetVelocity = ((audio.currentTime / audio.duration) * (targetVelocityEnd - targetVelocityStart)) + targetVelocityStart;
+
+        if (isNaN(currTargetVelocity))
+            currTargetVelocity = targetVelocityStart;
+
+        placeOnPath += currTargetVelocity / path.length;
+
+        if (isNaN(placeOnPath) || placeOnPath === undefined)
             placeOnPath = 0;
 
         if (placeOnPath === 1)
             placeOnPath = 0.999999999;
 
-        path.getPointAt(placeOnPath, targetBall.translation);
-        targetBall.translation.addSelf(path.translation);
+        var point = new Two.Anchor();
+        path.getPointAt(placeOnPath, point);
+        point.addSelf(path.translation);
+
+        if (point.x < 0)
+            point.x *= -1;
+        else if (point.x > width)
+            point.x = width - (point.x - width);
+
+        if (point.y < 0)
+            point.y *= -1;
+        else if (point.y > height)
+            point.y = height - (point.y - height);
+
+        var lerpPoint = targetBall.translation.lerp(point, lerpFactor);
+        console.log(lerpPoint);
+        targetBall.translation.set(lerpPoint.x, lerpPoint.y);
 	}).play();
 };
 
