@@ -22,6 +22,9 @@ var playSong = function(audio) {
     var guiderRadius = 20;
     var targetRadius = 60;
     var mouse = new Two.Vector();
+    var targetMoveStarted = false;
+    var currTrackLineIndex = 0;
+    var guiderTrackLength = 0;
 
     //*
     var dancer = new Dancer();
@@ -58,6 +61,7 @@ var playSong = function(audio) {
     var height = 667;       // FIXME: change it later to two.height (showing dev console in browser changes height)
     var curvePointCount = 64;
     var curvePoints = [];
+    var guiderTrackLines = [];
 
     // make the points for the path
     for (var i=0 ; i<curvePointCount ; ++i) {
@@ -77,7 +81,7 @@ var playSong = function(audio) {
     path.noFill().linewidth = 15;
     path.cap = path.join = 'round';
     path.stroke = 'lightblue';
-    // path.visible = false;
+    path.visible = false;
 
     var guiderBall = two.makeCircle(curvePoints[0].x + path.translation.x, curvePoints[0].y + path.translation.y, guiderRadius);
     guiderBall.fill = 'rgba(200, 10, 100, 0.5)';
@@ -140,14 +144,31 @@ var playSong = function(audio) {
         else if (guiderPos.y > height)
             guiderPos.y = height - (guiderPos.y - height);
 
+        var prevGuiderPos = new Two.Vector(guiderBall.translation.x, guiderBall.translation.y);
+
         var guiderLerpPoint = guiderBall.translation.lerp(guiderPos, lerpFactor);
+
+        // make the lines for the guiderTrack
+        if (!targetMoveStarted || targetMoveStarted) {
+            var trackLine = two.makeLine(prevGuiderPos.x, prevGuiderPos.y, guiderLerpPoint.x, guiderLerpPoint.y);
+            guiderTrackLines.push(trackLine);
+            trackLine.stroke = 'grey';
+            trackLine.cap = path.join = 'round';
+            trackLine.linewidth = 2;
+            guiderTrackLength += trackLine.length;
+        }
+
         guiderBall.translation.set(guiderLerpPoint.x, guiderLerpPoint.y);
+
 
 
         // set up target position
         if (guiderPlaceOnPath * path.length > guiderDistance) {
             if (!dancer.isPlaying())
                 dancer.play();
+
+            if (!targetMoveStarted)
+                targetMoveStarted = true;
 
             targetVelocityStart = 1;
 
@@ -168,6 +189,18 @@ var playSong = function(audio) {
 
             var targetLerpPoint = targetBall.translation.lerp(targetPos, lerpFactor);
             targetBall.translation.set(targetLerpPoint.x, targetLerpPoint.y);
+
+            // move the guider track
+            currTrackLineIndex += 1;
+            if (currTrackLineIndex === guiderTrackLines.length)
+                currTrackLineIndex = 0;
+
+            while (guiderTrackLength > guiderDistance) {
+                var wasteLine = guiderTrackLines.shift();
+                guiderTrackLength -= wasteLine.length;
+                wasteLine.remove();
+                Two.Utils.release(wasteLine);
+            }
         }
 
         // check if mouse or touch is on target
