@@ -1,70 +1,53 @@
-var context = null;
-var floatData = false;
-window.addEventListener('load', init, false);
+var AudioManager = function() {
+    audio = new Audio();
+    audio.src = './songs/getlucky.mp3';
+    audio.controls = true;
+    audio.autoplay = false;
+    document.body.appendChild(audio);
 
-var loadSong = function(fileName) {
-	var audio = new Audio();
-	audio.src = fileName;
-	audio.controls = true;
-	audio.autoplay = false;
-	document.body.appendChild(audio);
-	playSong(audio);
-};
+    AudioManager.prototype.getAudio = function() {
+        return audio;
+    }
 
-var playSong = function(audio) {
-	var prevFrameCount = 0;
-    var currFrameCount = 0;
-    var deltaFrameCount = 0;
-    var targetVelocityStart = 5;        // is set to default value (1) when song starts to play
-    var targetVelocityEnd = 5;
-    var lerpFactor = 0.05;
-    var guiderDistance = 500;
-    var guiderRadius = 20;
-    var targetRadius = 60;
-    var mouse = new Two.Vector();
-    var targetMoveStarted = false;
-    var currTrackLineIndex = 0;
-    var guiderTrackLength = 0;
+    AudioManager.prototype.getAudioDuration = function() {
+        return audio.duration;
+    }
 
-    //*
-    var dancer = new Dancer();
-    dancer.load(audio);
-    //dancer.setVolume(0);
-    // dancer.play();
+    AudioManager.prototype.getAudioCurrentTime = function() {
+        return audio.currentTime;
+    }
+}
 
 
-    var kickColor = 'rgba(0, 10, 255, 1)';
-    kick = dancer.createKick({
-    	frequency: [0, 10],
-    	threshold: 0.4,
-    	decay: 0.02,
-    	onKick: function(mag) {
-    		//console.log('kick: ' + mag);
-    		kickColor = 'rgba(100, 10, 200, 0.5)';
-
-            deltaFrameCount = currFrameCount - prevFrameCount;
-            prevFrameCount = currFrameCount;
-    	},
-    	offKick: function(mag) {
-    		kickColor = 'rgba(200, 10, 100, 0.5)';
-    	}
-    }).on();
-
-
-	// setup graphic objects// Make an instance of two and place it on the page.
-	var elem = document.getElementById('draw-shapes').children[0];
-	var params = { type: Two.Types['webgl'], fullscreen: true, autostart: true };
-	var two = new Two(params).appendTo(elem);
-    console.log(two.width, two.height);
-
+var Gameplay = function(two, audioManager) {
     var width = two.width;
     var height = 667;       // FIXME: change it later to two.height (showing dev console in browser changes height)
-    var curvePointCount = 64;
-    var curvePoints = [];
-    var guiderTrackLines = [];
+    var pathPointCount = 64;
+    var guideBallRadius = 20;
+    var targetBallRadius = 60;
+    var pathPoints = [];
+    var velocityStart = 5;        // is set to default value (1) when song starts to play
+    var velocityEnd = 5;
+    var guidePlaceOnPath = 0;
+    var lerpFactor = 0.05;
+    var guideTrackLines = [];
+    var guideTrackLength = 0;
+    var guideToTargetDistance = 500;
+    var mouse = new Two.Vector();
+
+    var visualizer = null;
+
+    Gameplay.prototype.setVisualizer = function(vis) {
+        visualizer = vis;
+    }
+
+    Gameplay.prototype.setMousePos = function(x, y) {
+        mouse.x = x;
+        mouse.y = y;
+    }
 
     // make the points for the path
-    for (var i=0 ; i<curvePointCount ; ++i) {
+    for (var i=0 ; i<pathPointCount ; ++i) {
 
         var randWidth = Math.random() * ((9/10) * width) + ((5/100) * width);
         while (randWidth > (width / 2) - (5/100) * width && randWidth < (width / 2) + (5/100) * width)
@@ -74,150 +57,173 @@ var playSong = function(audio) {
         while (randHeight > (height / 2) - (5/100) * height && randHeight < (height / 2) + (5/100) * height)
             var randHeight = Math.random() * ((9/10) * height) + ((5/100) * height);
 
-        curvePoints.push(new Two.Anchor(randWidth, randHeight));
+        pathPoints.push(new Two.Anchor(randWidth, randHeight));
     }
 
-    var path = two.makeCurve(curvePoints, true);
+    // make the path
+    var path = two.makeCurve(pathPoints, true);
     path.noFill().linewidth = 15;
     path.cap = path.join = 'round';
     path.stroke = 'lightblue';
     path.visible = false;
 
-    var guiderBall = two.makeCircle(curvePoints[0].x + path.translation.x, curvePoints[0].y + path.translation.y, guiderRadius);
-    guiderBall.fill = 'rgba(200, 10, 100, 0.5)';
-    guiderBall.noStroke();
+    var guideBall = two.makeCircle(pathPoints[0].x + path.translation.x, pathPoints[0].y + path.translation.y, guideBallRadius);
+    guideBall.fill = 'rgba(200, 10, 100, 0.5)';
+    guideBall.noStroke();
 
-    var targetBall = two.makeCircle(curvePoints[0].x + path.translation.x, curvePoints[0].y + path.translation.y, targetRadius);
+    var targetBall = two.makeCircle(pathPoints[0].x + path.translation.x, pathPoints[0].y + path.translation.y, targetBallRadius);
     targetBall.fill = 'rgba(200, 10, 10, 0.5)';
     targetBall.noStroke();
 
 
-    var $window = $(window)
-        .bind('mousemove', function(e) {
-          mouse.x = e.clientX;
-          mouse.y = e.clientY;
-        })
-        .bind('touchstart', function() {
-          e.preventDefault();
-          return false;
-        })
-        .bind('touchmove', function(e) {
-          e.preventDefault();
-          var touch = e.originalEvent.changedTouches[0];
-          mouse.x = touch.pageX;
-          mouse.y = touch.pageY;
-          return false;
-        });
+    Gameplay.prototype.update = function(frameCount, timeDelta) {
+        // FIXME: audio.duration has to always be available (currently it's not available for some songs)
+        // if (!isFinite(audioManager.getAudioDuration()))
+        //     console.log('audio duration is not right');
 
+        var velocity = ((audioManager.getAudioCurrentTime() / audioManager.getAudioDuration()) * (velocityEnd - velocityStart)) + velocityStart;
 
-    var guiderPlaceOnPath = 0;
-	// start the animation loop
-	two.bind('update', function(frameCount, timeDelta) {
+        if (isNaN(velocity))
+            velocity = velocityStart;
 
-        if (isNaN(audio.duration) || isNaN(audio.currentTime))
-            return;
+        var timeDeltaCorrection = timeDelta / (1000 / 60);
+        guidePlaceOnPath += (velocity * timeDeltaCorrection) / path.length;
 
-        var currTargetVelocity = ((audio.currentTime / audio.duration) * (targetVelocityEnd - targetVelocityStart)) + targetVelocityStart;
+        if (isNaN(guidePlaceOnPath) || guidePlaceOnPath === undefined)
+            guidePlaceOnPath = 0;
 
-        if (isNaN(currTargetVelocity))
-            currTargetVelocity = targetVelocityStart;
+        if (guidePlaceOnPath === 1)
+            guidePlaceOnPath = 0.999999999;
 
-        guiderPlaceOnPath += currTargetVelocity / path.length;
+        var guidePos = new Two.Anchor();
+        path.getPointAt(guidePlaceOnPath, guidePos);
+        guidePos.addSelf(path.translation);
 
-        if (isNaN(guiderPlaceOnPath) || guiderPlaceOnPath === undefined)
-            guiderPlaceOnPath = 0;
+        // fix the position when the path goes off the edges of the screen
+        if (guidePos.x < targetBallRadius)
+            guidePos.x = targetBallRadius + (targetBallRadius - guidePos.x);
+        else if (guidePos.x > width - targetBallRadius)
+            guidePos.x = (width - targetBallRadius) - (guidePos.x - (width - targetBallRadius));
 
-        if (guiderPlaceOnPath === 1)
-            guiderPlaceOnPath = 0.999999999;
+        if (guidePos.y < targetBallRadius)
+            guidePos.y = targetBallRadius + (targetBallRadius - guidePos.y);
+        else if (guidePos.y > height - targetBallRadius)
+            guidePos.y = (height - targetBallRadius) - (guidePos.y - (height - targetBallRadius));
 
-        var guiderPos = new Two.Anchor();
-        path.getPointAt(guiderPlaceOnPath, guiderPos);
-        guiderPos.addSelf(path.translation);
+        var prevGuidePos = new Two.Vector(guideBall.translation.x, guideBall.translation.y);
+        var guideLerpPoint = guideBall.translation.lerp(guidePos, lerpFactor);
 
-        if (guiderPos.x < 0)
-            guiderPos.x *= -1;
-        else if (guiderPos.x > width)
-            guiderPos.x = width - (guiderPos.x - width);
-
-        if (guiderPos.y < 0)
-            guiderPos.y *= -1;
-        else if (guiderPos.y > height)
-            guiderPos.y = height - (guiderPos.y - height);
-
-        var prevGuiderPos = new Two.Vector(guiderBall.translation.x, guiderBall.translation.y);
-
-        var guiderLerpPoint = guiderBall.translation.lerp(guiderPos, lerpFactor);
-
-        // make the lines for the guiderTrack
-        if (!targetMoveStarted || targetMoveStarted) {
-            var trackLine = two.makeLine(prevGuiderPos.x, prevGuiderPos.y, guiderLerpPoint.x, guiderLerpPoint.y);
-            guiderTrackLines.push(trackLine);
-            trackLine.stroke = 'grey';
-            trackLine.cap = path.join = 'round';
-            trackLine.linewidth = 2;
-            guiderTrackLength += trackLine.length;
-        }
-
-        guiderBall.translation.set(guiderLerpPoint.x, guiderLerpPoint.y);
-
-
+        // make the lines for the guideTrack
+        var trackLine = two.makeLine(prevGuidePos.x, prevGuidePos.y, guideLerpPoint.x, guideLerpPoint.y);
+        guideTrackLines.push(trackLine);
+        trackLine.stroke = 'grey';
+        trackLine.cap = path.join = 'round';
+        trackLine.linewidth = 2;
+        guideTrackLength += trackLine.length;
 
         // set up target position
-        if (guiderPlaceOnPath * path.length > guiderDistance) {
-            if (!dancer.isPlaying())
-                dancer.play();
+        if (guidePlaceOnPath * path.length > guideToTargetDistance) {
+            if (!visualizer.isDancerPlaying())
+                visualizer.playDancer();
 
-            if (!targetMoveStarted)
-                targetMoveStarted = true;
+            velocityStart = 1;
 
-            targetVelocityStart = 1;
-
-            var targetPlaceOnPath = guiderPlaceOnPath - (guiderDistance / path.length);
+            var targetPlaceOnPath = guidePlaceOnPath - (guideToTargetDistance / path.length);
             var targetPos = new Two.Anchor();
             path.getPointAt(targetPlaceOnPath, targetPos);
             targetPos.addSelf(path.translation);
 
-            if (targetPos.x < 0)
-                targetPos.x *= -1;
-            else if (targetPos.x > width)
-                targetPos.x = width - (targetPos.x - width);
+            // fix the position when the path goes off the edges of the screen
+            if (targetPos.x < targetBallRadius)
+                targetPos.x = targetBallRadius + (targetBallRadius - targetPos.x);
+            else if (targetPos.x > width - targetBallRadius)
+                targetPos.x = (width - targetBallRadius) - (targetPos.x - (width - targetBallRadius));
 
-            if (targetPos.y < 0)
-                targetPos.y *= -1;
-            else if (targetPos.y > height)
-                targetPos.y = height - (targetPos.y - height);
+            if (targetPos.y < targetBallRadius)
+                targetPos.y = targetBallRadius + (targetBallRadius - targetPos.y);
+            else if (targetPos.y > height - targetBallRadius)
+                targetPos.y = (height - targetBallRadius) - (targetPos.y - (height- targetBallRadius));
 
             var targetLerpPoint = targetBall.translation.lerp(targetPos, lerpFactor);
-            targetBall.translation.set(targetLerpPoint.x, targetLerpPoint.y);
 
-            // move the guider track
-            currTrackLineIndex += 1;
-            if (currTrackLineIndex === guiderTrackLines.length)
-                currTrackLineIndex = 0;
-
-            while (guiderTrackLength > guiderDistance) {
-                var wasteLine = guiderTrackLines.shift();
-                guiderTrackLength -= wasteLine.length;
+            // remove the extra length of guide track
+            while (guideTrackLength > guideToTargetDistance) {
+                var wasteLine = guideTrackLines.shift();
+                guideTrackLength -= wasteLine.length;
                 wasteLine.remove();
                 Two.Utils.release(wasteLine);
             }
         }
 
         // check if mouse or touch is on target
-        if (targetBall.translation.distanceTo(mouse) <= targetRadius)
+        if (targetBall.translation.distanceTo(mouse) <= targetBallRadius)
             targetBall.fill = 'rgba(10, 200, 10, 0.5)';
         else
             targetBall.fill = 'rgba(200, 10, 10, 0.5)';
+    }
+}
 
-	}).play();
-};
 
-function init() {
+var Visualizer = function(two, audioManager) {
+    dancer = new Dancer();
+    dancer.load(audioManager.getAudio());
+
+    var kickColor = 'rgba(0, 10, 255, 1)';
+    kick = dancer.createKick({
+        frequency: [0, 10],
+        // threshold: 0.3,
+        // decay: 0.02,
+        onKick: function(mag) {
+            // console.log('kick: ' + mag);
+            kickColor = 'rgba(100, 10, 200, 0.5)';
+        },
+        offKick: function(mag) {
+            // console.log('offkick');
+            kickColor = 'rgba(200, 10, 100, 0.5)';
+        }
+    }).on();
+
+    Visualizer.prototype.isDancerPlaying = function() {
+        return dancer.isPlaying();
+    }
+
+    Visualizer.prototype.playDancer = function() {
+        return dancer.play();
+    }
+}
+
+
+window.onload = function init() {
 	try {
-		// fix up for prefixing
-		window.AudioContext = window.AudioContext || window.webkitAudioContext;
-		context = new AudioContext();
-		loadSong('./songs/getlucky.mp3');
+        var elem = document.getElementById('draw-shapes').children[0];
+        var params = { type: Two.Types['webgl'], fullscreen: true, autostart: true };
+        var two = new Two(params).appendTo(elem);
+
+        var audioManager = new AudioManager();
+        var gameplay = new Gameplay(two, audioManager);
+        var visualizer = new Visualizer(two, audioManager);
+
+        gameplay.setVisualizer(visualizer);
+
+        var $window = $(window)
+            .bind('mousemove', function(e) {
+                gameplay.setMousePos(e.clientX, e.clientY);
+            })
+            .bind('touchstart', function() {
+                e.preventDefault();
+                return false;
+            })
+            .bind('touchmove', function(e) {
+                e.preventDefault();
+                var touch = e.originalEvent.changedTouches[0];
+                gameplay.setMousePos(e.clientX, e.clientY);
+                return false;
+            });
+
+        // start the animation loop
+        two.bind('update', function(frameCount, timeDelta) {
+            gameplay.update(frameCount, timeDelta);
+        }).play();
 	}
 	catch(e) {
 		console.log(e.message);
