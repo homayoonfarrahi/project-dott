@@ -65,7 +65,8 @@ var Gameplay = function(two, audioManager) {
     path.noFill().linewidth = 15;
     path.cap = path.join = 'round';
     path.stroke = 'lightblue';
-    path.visible = false;
+    path.opacity = 0;           // FIXME: have put this here because of following line
+    path.visible = false;       // FIXME: with canvas drawing path.visible = false; doesn't work
 
     var guideBall = two.makeCircle(pathPoints[0].x + path.translation.x, pathPoints[0].y + path.translation.y, guideBallRadius);
     guideBall.fill = 'rgba(200, 10, 100, 0.5)';
@@ -118,7 +119,8 @@ var Gameplay = function(two, audioManager) {
         guideTrackLines.push(trackLine);
         trackLine.stroke = 'grey';
         trackLine.cap = path.join = 'round';
-        trackLine.linewidth = 2;
+        trackLine.linewidth = 3;
+        trackLine.opacity = 0.1;
         guideTrackLength += trackLine.length;
 
         // set up target position
@@ -148,7 +150,7 @@ var Gameplay = function(two, audioManager) {
 
             // remove the extra length of guide track
             while (guideTrackLength > guideToTargetDistance) {
-                var wasteLine = guideTrackLines.shift();
+                var wasteLine = guideTrackLines.shift();        // FIXME: probably array shift here is eating a lot of performance
                 guideTrackLength -= wasteLine.length;
                 wasteLine.remove();
                 Two.Utils.release(wasteLine);
@@ -168,20 +170,11 @@ var Visualizer = function(two, audioManager) {
     dancer = new Dancer();
     dancer.load(audioManager.getAudio());
 
-    var kickColor = 'rgba(0, 10, 255, 1)';
-    kick = dancer.createKick({
-        frequency: [0, 10],
-        // threshold: 0.3,
-        // decay: 0.02,
-        onKick: function(mag) {
-            // console.log('kick: ' + mag);
-            kickColor = 'rgba(100, 10, 200, 0.5)';
-        },
-        offKick: function(mag) {
-            // console.log('offkick');
-            kickColor = 'rgba(200, 10, 100, 0.5)';
-        }
-    }).on();
+    var width = two.width;
+    var height = 667;       // FIXME: change it later to two.height (showing dev console in browser changes height)
+    var visualizationBallCount = 32;
+    var maxBallOpacity = 0.8;
+    var balls = [];
 
     Visualizer.prototype.isDancerPlaying = function() {
         return dancer.isPlaying();
@@ -190,13 +183,78 @@ var Visualizer = function(two, audioManager) {
     Visualizer.prototype.playDancer = function() {
         return dancer.play();
     }
+
+    // generate visualization balls
+    for (var i=0 ; i<visualizationBallCount ; ++i) {
+        var randRadius = Math.random() * 10 + 20;
+        var randWidth = Math.random() * (width - (2 * randRadius)) + randRadius;
+        var randHeight = Math.random() * (height - (2 * randRadius)) + randRadius;
+        var ball = two.makeCircle(randWidth, randHeight, randRadius);
+        ball.fill = 'rgba(' + Math.floor(Math.random() * 255) + ', ' + Math.floor(Math.random() * 255) + ', ' + Math.floor(Math.random() * 255) + ', ' + Math.random() * maxBallOpacity + ')';
+        ball.noStroke();
+
+        randVelX = Math.random() * 1 - 0.5;
+        randVelY = Math.random() * 1 - 0.5;
+        ball.velocity = new Two.Anchor(randVelX, randVelY);
+
+        beatMag = 0;
+        balls.push(ball);
+    }
+
+    var kickColor = 'rgba(0, 10, 255, 1)';
+    kick = dancer.createKick({
+        frequency: [0, 10],
+        // threshold: 0.3,
+        // decay: 0.02,
+        onKick: function(mag) {
+            // console.log('kick: ' + mag);
+            kickColor = 'rgba(100, 10, 200, 0.5)';
+            beatMag = mag;
+        },
+        offKick: function(mag) {
+            // console.log('offkick: ' + mag);
+            kickColor = 'rgba(200, 10, 100, 0.5)';
+        }
+    }).on();
+
+
+    Visualizer.prototype.update = function(frameCount, timeDelta) {
+        var timeDeltaCorrection = timeDelta / (1000 / 60);
+        if (!isFinite(timeDeltaCorrection))
+            timeDeltaCorrection = 1;
+
+        // update the balls
+        for (var i=0 ; i<balls.length ; ++i) {
+            if (balls[i].translation.x < 0)
+                balls[i].velocity.x = Math.abs(balls[i].velocity.x);
+            else if (balls[i].translation.x > width)
+                balls[i].velocity.x = -Math.abs(balls[i].velocity.x);
+
+            if (balls[i].translation.y < 0)
+                balls[i].velocity.y = Math.abs(balls[i].velocity.y);
+            else if (balls[i].translation.y > height)
+                balls[i].velocity.y = -Math.abs(balls[i].velocity.y);
+
+            var velocity = new Two.Anchor(balls[i].velocity.x, balls[i].velocity.y);
+            velocity.multiplyScalar(timeDeltaCorrection);
+            balls[i].translation.addSelf(velocity);
+
+            if (2 + beatMag - balls[i].scale > 0.5)
+                balls[i].scale += (2 + beatMag - balls[i].scale) * 0.3;
+            else {
+                beatMag = -1;
+                balls[i].scale += (2 + beatMag - balls[i].scale) * 0.1;
+            }
+
+        }
+    }
 }
 
 
 window.onload = function init() {
 	try {
         var elem = document.getElementById('draw-shapes').children[0];
-        var params = { type: Two.Types['webgl'], fullscreen: true, autostart: true };
+        var params = { type: Two.Types['canvas'], fullscreen: true, autostart: true };
         var two = new Two(params).appendTo(elem);
 
         var audioManager = new AudioManager();
@@ -223,6 +281,7 @@ window.onload = function init() {
         // start the animation loop
         two.bind('update', function(frameCount, timeDelta) {
             gameplay.update(frameCount, timeDelta);
+            visualizer.update(frameCount, timeDelta);
         }).play();
 	}
 	catch(e) {
