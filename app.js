@@ -1,5 +1,5 @@
 var AudioManager = function() {
-    audio = new Audio();
+    var audio = new Audio();
     audio.src = './songs/getlucky.mp3';
     audio.controls = true;
     audio.autoplay = false;
@@ -167,14 +167,17 @@ var Gameplay = function(two, audioManager) {
 
 
 var Visualizer = function(two, audioManager) {
-    dancer = new Dancer();
+    var dancer = new Dancer();
     dancer.load(audioManager.getAudio());
 
     var width = two.width;
     var height = 667;       // FIXME: change it later to two.height (showing dev console in browser changes height)
-    var visualizationBallCount = 32;
+    var maxBallCount = 70;
+    var initialBallCount = 0;
     var maxBallOpacity = 0.8;
-    var balls = [];
+    var ballGroupCount = 7;
+    var ballGroups = [];
+    var mainColors = ['yellow', 'orange', 'red', 'purple', 'blue', 'aqua', 'lime'];
 
     Visualizer.prototype.isDancerPlaying = function() {
         return dancer.isPlaying();
@@ -184,68 +187,178 @@ var Visualizer = function(two, audioManager) {
         return dancer.play();
     }
 
-    // generate visualization balls
-    for (var i=0 ; i<visualizationBallCount ; ++i) {
-        var randRadius = Math.random() * 10 + 20;
-        var randWidth = Math.random() * (width - (2 * randRadius)) + randRadius;
-        var randHeight = Math.random() * (height - (2 * randRadius)) + randRadius;
-        var ball = two.makeCircle(randWidth, randHeight, randRadius);
-        ball.fill = 'rgba(' + Math.floor(Math.random() * 255) + ', ' + Math.floor(Math.random() * 255) + ', ' + Math.floor(Math.random() * 255) + ', ' + Math.random() * maxBallOpacity + ')';
-        ball.noStroke();
+    var BallGroup = function(id) {
+        var onBeat = false;
+        var beatMagnitude = 0;
+        var balls = [];
 
-        randVelX = Math.random() * 1 - 0.5;
-        randVelY = Math.random() * 1 - 0.5;
-        ball.velocity = new Two.Anchor(randVelX, randVelY);
+        this.setBeat = function(mag) {
+            onBeat = true;
+            beatMagnitude = mag;
+        }
 
-        beatMag = 0;
-        balls.push(ball);
+        this.addBall = function() {
+            var randRadius = Math.random() * 10 + 20;
+            var randWidth = Math.random() * (width - (2 * randRadius)) + randRadius;
+            var randHeight = Math.random() * (height - (2 * randRadius)) + randRadius;
+            var ball = two.makeCircle(randWidth, randHeight, randRadius);
+            // ball.fill = 'rgba(' + Math.floor(Math.random() * 255) + ', ' + Math.floor(Math.random() * 255) + ', ' + Math.floor(Math.random() * 255) + ', ' + Math.random() * maxBallOpacity + ')';
+            ball.fill = mainColors[id];
+            ball.opacity = 0.75;
+            ball.noStroke();
+            ball.scale = 0;
+
+            var randVelX = Math.random() * 1 - 0.5;
+            var randVelY = Math.random() * 1 - 0.5;
+            ball.velocity = new Two.Anchor(randVelX, randVelY);
+            balls.push(ball);
+        }
+
+        this.update = function(frameCount, timeDelta) {
+            var timeDeltaCorrection = timeDelta / (1000 / 60);
+            if (!isFinite(timeDeltaCorrection))
+                timeDeltaCorrection = 1;
+
+            for (var i=0 ; i<balls.length ; ++i) {
+                if (balls[i].translation.x < 0)
+                    balls[i].velocity.x = Math.abs(balls[i].velocity.x);
+                else if (balls[i].translation.x > width)
+                    balls[i].velocity.x = -Math.abs(balls[i].velocity.x);
+
+                if (balls[i].translation.y < 0)
+                    balls[i].velocity.y = Math.abs(balls[i].velocity.y);
+                else if (balls[i].translation.y > height)
+                    balls[i].velocity.y = -Math.abs(balls[i].velocity.y);
+
+                var velocity = new Two.Anchor(balls[i].velocity.x, balls[i].velocity.y);
+                velocity.multiplyScalar(timeDeltaCorrection);
+                balls[i].translation.addSelf(velocity);
+
+                // do the scaling based on beat
+                var progress = (audioManager.getAudioCurrentTime() / (0.9 * audioManager.getAudioDuration()));
+                if (progress > 1)
+                    progress = 1;
+
+                if (onBeat) {
+                    if (1 + progress + beatMagnitude - balls[i].scale < 0.2 * balls[i].scale)
+                        onBeat = false;
+
+                    balls[i].scale += (1 + progress + beatMagnitude - balls[i].scale) * 0.3;
+                }
+                else {
+                    balls[i].scale += (1 - balls[i].scale) * 0.1;
+                }
+            }
+        }
     }
 
-    var kickColor = 'rgba(0, 10, 255, 1)';
-    kick = dancer.createKick({
+    // generate visualization balls
+    for (var i=0 ; i<ballGroupCount ; ++i) {
+        var ballGroup = new BallGroup(i);
+        ballGroup.addBall();
+        initialBallCount += 1;
+        ballGroups.push(ballGroup);
+    }
+
+    // set kickers for visualization balls
+    var kick1 = dancer.createKick({
         frequency: [0, 10],
-        // threshold: 0.3,
+        threshold: 0.3,
         // decay: 0.02,
         onKick: function(mag) {
-            // console.log('kick: ' + mag);
-            kickColor = 'rgba(100, 10, 200, 0.5)';
-            beatMag = mag;
+            ballGroups[0].setBeat(mag);
         },
         offKick: function(mag) {
-            // console.log('offkick: ' + mag);
-            kickColor = 'rgba(200, 10, 100, 0.5)';
         }
     }).on();
 
+    var kick2 = dancer.createKick({
+        frequency: [10, 20],
+        threshold: 0.15,
+        // decay: 0.02,
+        onKick: function(mag) {
+            ballGroups[1].setBeat(mag);
+        },
+        offKick: function(mag) {
+        }
+    }).on();
+
+    var kick3 = dancer.createKick({
+        frequency: [20, 30],
+        threshold: 0.1,
+        // decay: 0.02,
+        onKick: function(mag) {
+            ballGroups[2].setBeat(mag);
+        },
+        offKick: function(mag) {
+        }
+    }).on();
+
+    var kick4 = dancer.createKick({
+        frequency: [30, 40],
+        threshold: 0.05,
+        // decay: 0.02,
+        onKick: function(mag) {
+            ballGroups[3].setBeat(mag);
+        },
+        offKick: function(mag) {
+        }
+    }).on();
+
+    var kick5 = dancer.createKick({
+        frequency: [40, 50],
+        threshold: 0.05,
+        // decay: 0.02,
+        onKick: function(mag) {
+            ballGroups[4].setBeat(mag);
+        },
+        offKick: function(mag) {
+        }
+    }).on();
+
+    var kick6 = dancer.createKick({
+        frequency: [50, 60],
+        threshold: 0.025,
+        // decay: 0.02,
+        onKick: function(mag) {
+            ballGroups[5].setBeat(mag);
+        },
+        offKick: function(mag) {
+        }
+    }).on();
+
+    var kick7 = dancer.createKick({
+        frequency: [60, 70],
+        threshold: 0.025,
+        // decay: 0.02,
+        onKick: function(mag) {
+            ballGroups[6].setBeat(mag);
+        },
+        offKick: function(mag) {
+            console.log(mag)
+        }
+    }).on();
+
+
+    var addedBallsCount = 0;
 
     Visualizer.prototype.update = function(frameCount, timeDelta) {
         var timeDeltaCorrection = timeDelta / (1000 / 60);
         if (!isFinite(timeDeltaCorrection))
             timeDeltaCorrection = 1;
 
+        var progress = (audioManager.getAudioCurrentTime() / (0.9 * audioManager.getAudioDuration()));
+        if (progress > 1)
+            progress = 1;
+
+        if (progress * (maxBallCount - initialBallCount) > addedBallsCount + 1) {
+            ballGroups[addedBallsCount % ballGroupCount].addBall();
+            addedBallsCount += 1;
+        }
+
         // update the balls
-        for (var i=0 ; i<balls.length ; ++i) {
-            if (balls[i].translation.x < 0)
-                balls[i].velocity.x = Math.abs(balls[i].velocity.x);
-            else if (balls[i].translation.x > width)
-                balls[i].velocity.x = -Math.abs(balls[i].velocity.x);
-
-            if (balls[i].translation.y < 0)
-                balls[i].velocity.y = Math.abs(balls[i].velocity.y);
-            else if (balls[i].translation.y > height)
-                balls[i].velocity.y = -Math.abs(balls[i].velocity.y);
-
-            var velocity = new Two.Anchor(balls[i].velocity.x, balls[i].velocity.y);
-            velocity.multiplyScalar(timeDeltaCorrection);
-            balls[i].translation.addSelf(velocity);
-
-            if (2 + beatMag - balls[i].scale > 0.5)
-                balls[i].scale += (2 + beatMag - balls[i].scale) * 0.3;
-            else {
-                beatMag = -1;
-                balls[i].scale += (2 + beatMag - balls[i].scale) * 0.1;
-            }
-
+        for (var i=0 ; i<ballGroups.length ; ++i) {
+            ballGroups[i].update(frameCount, timeDelta);
         }
     }
 }
