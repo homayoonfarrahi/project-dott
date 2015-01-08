@@ -10,7 +10,7 @@ var AudioManager = function() {
     }
 
     AudioManager.prototype.getAudioDuration = function() {
-        return audio.duration;
+        return (isFinite(audio.duration)) ? audio.duration : 210;
     }
 
     AudioManager.prototype.getAudioCurrentTime = function() {
@@ -198,7 +198,8 @@ var Visualizer = function(two, audioManager) {
         }
 
         this.addBall = function() {
-            var randRadius = Math.random() * 10 + 20;
+            // var randRadius = Math.random() * 10 + 20;
+            var randRadius = 25;
             var randWidth = Math.random() * (width - (2 * randRadius)) + randRadius;
             var randHeight = Math.random() * (height - (2 * randRadius)) + randRadius;
             var ball = two.makeCircle(randWidth, randHeight, randRadius);
@@ -241,7 +242,7 @@ var Visualizer = function(two, audioManager) {
 
                 if (onBeat) {
                     if (1 + progress + beatMagnitude - balls[i].scale < 0.2 * balls[i].scale)
-                        onBeat = false;
+                        onBeat = false;         // FIXME: this causes the other balls in the array not to beat
 
                     balls[i].scale += (1 + progress + beatMagnitude - balls[i].scale) * 0.3;
                 }
